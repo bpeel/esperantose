@@ -5,6 +5,7 @@ import urllib.request
 import pyrfc3339
 import os.path
 import json
+import io
 
 conf_dir = os.path.expanduser("~/.esperantose")
 timestamp_file = os.path.join(conf_dir, "timestamp")
@@ -56,7 +57,7 @@ for entry in d.getroot().findall('./{http://www.w3.org/2005/Atom}entry'):
     req = urllib.request.Request(send_message_url,
                                  json.dumps(args).encode('utf-8'))
     req.add_header('Content-Type', 'application/json; charset=utf-8')
-    rep = json.loads(urllib.request.urlopen(req).read().decode('utf-8'))
+    rep = json.load(io.TextIOWrapper(urllib.request.urlopen(req), 'utf-8'))
     if rep['ok'] is not True:
         raise Exception("sendMessage request failed")
 
