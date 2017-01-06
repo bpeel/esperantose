@@ -1,11 +1,26 @@
 #!/usr/bin/python3
 
-import xml.etree.ElementTree as ET
 import urllib.request
-import pyrfc3339
+import datetime
+import time
 import os.path
 import json
 import io
+import gzip
+import html
+
+def has_parts(entry):
+    for part in ["link", "title", "creation_date"]:
+        if part not in entry:
+            return False
+
+    return True
+
+def get_se_query(url):
+    u = urllib.request.urlopen(url)
+    g = gzip.GzipFile(mode='rb', fileobj=u)
+    t = io.TextIOWrapper(g, 'utf-8')
+    return json.load(t)
 
 conf_dir = os.path.expanduser("~/.esperantose")
 timestamp_file = os.path.join(conf_dir, "timestamp")
@@ -20,38 +35,37 @@ channel_name = "@esperanto_se_demandoj"
 
 try:
     with open(timestamp_file, 'r', encoding='utf-8') as f:
-        last_timestamp = pyrfc3339.parse(f.read().rstrip())
+        last_timestamp = int(f.read().rstrip())
 except FileNotFoundError:
-    last_timestamp = None
+    d = datetime.datetime.now()
+    last_timestamp = int(time.mktime(d.timetuple())) - 48 * 60 * 60
 
-u = urllib.request.urlopen("http://esperanto.stackexchange.com/feeds")
-d = ET.parse(u)
+query_url = ("https://api.stackexchange.com/2.2/questions?"
+             "order=asc&"
+             "sort=creation&"
+             "site=esperanto&"
+             "pagesize=10&"
+             "fromdate={}").format(last_timestamp)
+
+d = get_se_query(query_url)
 
 latest_timestamp = None
 
-for entry in d.getroot().findall('./{http://www.w3.org/2005/Atom}entry'):
-    published = entry.find("./{http://www.w3.org/2005/Atom}published")
-
-    if published is None:
+for entry in d['items']:
+    if not has_parts(entry):
         continue
 
-    timestamp = pyrfc3339.parse("".join(published.itertext()))
+    timestamp = int(entry["creation_date"])
 
     if last_timestamp is not None and timestamp <= last_timestamp:
         continue
 
-    link = entry.find("./{http://www.w3.org/2005/Atom}link")
-    title = entry.find("./{http://www.w3.org/2005/Atom}title")
-
-    if link is None or title is None or 'href' not in link.attrib:
-        continue
-
-    link_url = link.attrib['href']
-    title_text = "".join(title.itertext())
+    link = entry["link"]
+    title = html.unescape(entry["title"])
 
     args = {
         'chat_id': channel_name,
-        'text': title_text + "\n" + link_url
+        'text': title + "\n" + link
     }
 
     req = urllib.request.Request(send_message_url,
@@ -66,4 +80,4 @@ for entry in d.getroot().findall('./{http://www.w3.org/2005/Atom}entry'):
 
 if latest_timestamp is not None:
     with open(timestamp_file, 'w', encoding='utf-8') as f:
-        print(pyrfc3339.generate(latest_timestamp), file=f)
+        print(latest_timestamp, file=f)
